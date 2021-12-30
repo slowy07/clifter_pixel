@@ -19,14 +19,57 @@ class EdgeLoss(LossInterface):
 
     @staticmethod
     def add_settings(parser):
-        parser.add_argument("--edge_thickness", type=int, help="thickness of the edge area all the way around (percent)", default=5, dest='edge_thickness')
-        parser.add_argument("--edge_margins", nargs=4, type=int, help="this is for the thickness of each edge (left, right, up, down) 0-pixel size", default=None, dest='edge_margins')
-        parser.add_argument("--edge_color", type=str, help="this is the color of the specified region", default="white", dest='edge_color')
-        parser.add_argument("--edge_color_weight", type=float, help="how much edge color is enforced", default=0.1, dest='edge_color_weight')
-        parser.add_argument("--global_color_weight", type=float, help="how much global color is enforced ", default=0.05, dest='global_color_weight')
-        parser.add_argument("--edge_input_image", type=str, help="TBD", default="", dest='edge_input_image')
-        parser.add_argument("--edge_mask_image", type=str, help="TBD", default="", dest='edge_mask_image')
-        
+        parser.add_argument(
+            "--edge_thickness",
+            type=int,
+            help="thickness of the edge area all the way around (percent)",
+            default=5,
+            dest="edge_thickness",
+        )
+        parser.add_argument(
+            "--edge_margins",
+            nargs=4,
+            type=int,
+            help="this is for the thickness of each edge (left, right, up, down) 0-pixel size",
+            default=None,
+            dest="edge_margins",
+        )
+        parser.add_argument(
+            "--edge_color",
+            type=str,
+            help="this is the color of the specified region",
+            default="white",
+            dest="edge_color",
+        )
+        parser.add_argument(
+            "--edge_color_weight",
+            type=float,
+            help="how much edge color is enforced",
+            default=0.1,
+            dest="edge_color_weight",
+        )
+        parser.add_argument(
+            "--global_color_weight",
+            type=float,
+            help="how much global color is enforced ",
+            default=0.05,
+            dest="global_color_weight",
+        )
+        parser.add_argument(
+            "--edge_input_image",
+            type=str,
+            help="TBD",
+            default="",
+            dest="edge_input_image",
+        )
+        parser.add_argument(
+            "--edge_mask_image",
+            type=str,
+            help="TBD",
+            default="",
+            dest="edge_mask_image",
+        )
+
         return parser
 
     def parse_settings(self, args):
@@ -55,3 +98,69 @@ class EdgeLoss(LossInterface):
             self.mask = None
 
         return args
+
+    def get_loss(self, cur_cutouts, out, args, globals=None, lossGlobals=None):
+        if self.resize is None and self.image is not None:
+            self.resized = TF.to_tensor(self.image).to(self.device).unsqueeze(0)
+            self.resized = TF.resize(
+                self.resized, out.soze()[2:4], TF.InterpolationMode.BICUBIC
+            )
+            print("Image mask: ", self.resized.shape)
+        if self.resized_mask is None and self.mask is not None:
+            self.resized_mask = TF.to_tensor(self.mask).to(self.device).unsqueeze(0)
+            self.resized_mask = TF.resize(
+                self.resized_mask, out.size()[2:4], TF.InterpolationMode.BICUBIC
+            )
+            print("resize mask :", self.resized_mask.shape)
+
+        if not self.image:
+            zers = torch.zeros(out.size()).to(self.device)
+            Rval, Gval, Bval = args.edge_color
+            zers[:, 0, :, :] = Rval
+            zers[:, 1, :, :] = Gval
+            zers[:, 2, :, :] = Bval
+        else:
+            zers = self.resized
+        cur_loss = torch.tensor(0.0).cuda()
+        mseloss = nn.MSELoss()
+        if not self.mask:
+            lmax = out.size()[2]
+            rmax = out.size()[3]
+            left, right, upper, lower = args.edge_margins
+            left = int(map_number(left, 0, 100, 0, rmax))
+            right = int(map_number(right, 0, 100, 0, rmax))
+            upper = int(map_number(upper, 0, 100, 0, lmax))
+            lower = int(map_number(lower, 0, 100, 0, lmax))
+
+            lloss = mseloss(out[:, :, :, :left], zers[:, :, :, :left])
+            rloss = mseloss(out[:, :, :, rmax - right :], zers[:, :, :, rmax - right :])
+            uloss = mseloss(
+                out[:, :, :upper, left : rmax - right],
+                zers[:, :, :upper, left : rmax - right],
+            )
+            dloss = mseloss(
+                out[:, :, lmax - lower :, left : rmax - right],
+                zers[:, :, lmax - lower :, left : rmax - right],
+            )
+            if left != 0:
+                cur_loss += lloss
+            if right != 0:
+                cur_loss += rloss
+            if upper != 0:
+                cur_loss += uloss
+            if lower != 0:
+                cur_loss += dloss
+
+        else:
+            make_out = torch.where(self.resized_maxk > 0, zers, out)
+            mask_loss = mseloss(make_out, zers)
+            cur_loss += mask_loss
+        if args.global_color_weight:
+            gloss = (
+                mseloss(out[:, :, :, :], zers[:, :, :, :]) * args.global_color_weight
+            )
+            cur_loss += gloss
+
+        cur_loss *= args.edge_color_weight
+
+        return cur_loss
