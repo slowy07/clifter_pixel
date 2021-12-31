@@ -1,0 +1,3 @@
+cmake==3.21.3
+cssutils==2.30
+svgpathtools==1.4.2
