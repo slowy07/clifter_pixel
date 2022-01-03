@@ -1,0 +1,5 @@
+quality: "draft"
+drawer: vqgan
+iterations: 100
+prompts: "sunset city"
+output: outputs/hello_clifter_pixel.png

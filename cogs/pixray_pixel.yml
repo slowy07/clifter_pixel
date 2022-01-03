@@ -1,0 +1,6 @@
+display_every: 10
+output: outputs/clf_pixel.png
+quality: better
+scale: 2.5
+vector_prompts: textoff
+
