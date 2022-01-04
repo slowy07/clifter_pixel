@@ -1,0 +1,5 @@
+build:
+  gpu: true
+  cuda: "10.2"
+  python_version: "3.8"
+  python_requirements: "requirements.txt"
